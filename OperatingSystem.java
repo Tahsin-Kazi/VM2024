@@ -1,11 +1,13 @@
 import java.io.File;
-import java.math.BigInteger;
 import java.util.ArrayList;
 import java.util.Scanner;
 
 class OperatingSystem {
-    ArrayList<String> virtualMemory;
+
+    MemoryManager MM;
     ProcessControlBlock PCB;
+    CentralProcessingUnit CPU;
+    boolean[] readyQueue;
 
     void loader(String path) {
         
@@ -13,74 +15,115 @@ class OperatingSystem {
         Scanner scan = new Scanner(programFile);
         
         while (scan.hasNextLine()) {
-            virtualMemory.add(scan.nextLine());
+            MM.addDisc(scan.nextLine());
         }
 
-        scan.close();
     }
 
     void longTermScheduler() {
         
-        if (virtualMemory.get(0).toLowerCase().contains("job")) {
-            virtualMemory.remove(0);
+        for (int i = 0; i < MM.getDiscSize(); i++) {
+            MM.addMemory(MM.getDisc(i));
         }
 
-        for (int i = 0; i < virtualMemory.size(); i++) {
-            if (virtualMemory.get(i).toLowerCase().contains("data")) {
+        if (MM.getMemory(0).toLowerCase().contains("job")) {
+            MM.deleteMemory(0);
+        }
+
+        for (int i = 0; i < MM.getMemorySize(); i++) {
+            if (MM.getMemory(i).toLowerCase().contains("data")) {
                 PCB.dataIndex = i;
                 PCB.instructionCount = i;
-                virtualMemory.set(i,"data");
+                MM.setMemory(i,"data");
             }
         }
 
-        virtualMemory.add("end");
+        MM.addMemory("end");
 
         PCB = new ProcessControlBlock();
-    }
 
-    void shortTermScheduler(CentralProcessingUnit CPU) {
-        
+        PCB.programCounter = 0;
+
         CPU.registers = new int[16];
 
         for (int i = 0; i < CPU.registers.length; i++) {
             CPU.registers[i] = 0;
         }
 
-        CPU.memory = virtualMemory;
+        CPU.memoryAccess = MM;
 
-        CPU.memoryAddressOffset = PCB.dataIndex;
+        CPU.PCB = PCB;
 
-        PCB.programCounter = 0;
-        PCB.ready = true;
+        CPU.dataMemoryOffset = PCB.dataIndex;
+
+        readyQueue = new boolean[1];
+
+        readyQueue[0] = true;
     }
 }
 
 class ProcessControlBlock {
-    
     public int programCounter;
-    public boolean ready;
     public int dataIndex;
     public int instructionCount;
+}
 
-    ProcessControlBlock () {
-        ready = false;
+class MemoryManager {
+    private ArrayList<String> virtualDisc;
+    private ArrayList<String> virtualMemory;
+
+    MemoryManager() {
+        virtualDisc = new ArrayList<String>();
+        virtualMemory = new ArrayList<String>();
+    }
+
+    public void addMemory(String s) {
+        virtualMemory.add(s);
+    }
+
+    public void addDisc(String s) {
+        virtualDisc.add(s);
+    }
+
+    public int getMemorySize() {
+        return virtualMemory.size();
+    }
+
+    public int getDiscSize() {
+        return virtualDisc.size();
+    }
+
+    public String getMemory(int i) {
+        return virtualMemory.get(i);
+    }
+
+    public String getDisc(int i) {
+        return virtualDisc.get(i);
+    }
+
+    public void deleteMemory(int i) {
+        virtualMemory.remove(i);
+        return;
+    }
+
+    public void setMemory(int i, String s) {
+        virtualMemory.set(i, s);
     }
 }
 
 class CentralProcessingUnit {
     public int[] registers;
-    public int memoryAddressOffset;
-    public ArrayList<String> memory;
+    public int dataMemoryOffset;
+    public MemoryManager memoryAccess;
+    public ProcessControlBlock PCB;
 
-    String fetch(int PC) {
-        return memory.get(PC);
+    void fetch() {
+        registers[2] = Integer.parseInt(memoryAccess.getMemory(PCB.programCounter));
     }
 
-    int[] decode(String instruction) {
+    int[] decode() {
         
-        instruction = new BigInteger(instruction.substring(2),16).toString(2);
-        
-        registers[2] = Integer.parseInt(instruction);
+        String instruction = Integer.toBinaryString(registers[2]);
 
         int type = Integer.parseInt(instruction.substring(0,2));
         int opcode = Integer.parseInt(instruction.substring(2,8));
@@ -121,11 +164,141 @@ class CentralProcessingUnit {
     }
 
     void execute(int[] operation) {
+        switch(operation[0]) {
+            
+            case 0:
+            if (operation[3]==0) {
+                registers[operation[1]] = registers[operation[2]];
+            } else {
+                registers[operation[1]] = Integer.parseInt(memoryAccess.getMemory(operation[3]+dataMemoryOffset));
+            }
+            break;
+            
+            case 1:
+            if (operation[3]==0) {
+                registers[operation[2]] = registers[operation[1]];
+            } else {
+                memoryAccess.setMemory(operation[3]+dataMemoryOffset, Integer.toString(registers[operation[1]]));
+            }
+            break;
+
+            case 2:
+            if (operation[3]==0) {
+                registers[operation[2]] = registers[operation[1]];
+            } else {
+                memoryAccess.setMemory(operation[3]+dataMemoryOffset, Integer.toString(registers[operation[1]]));
+            }
+            break;
+
+            case 3:
+            if (operation[3]==0) {
+                registers[operation[1]] = registers[operation[2]];
+            } else {
+                registers[operation[1]] = Integer.parseInt(memoryAccess.getMemory(operation[3]+dataMemoryOffset));
+            }
+            break;
+
+            case 4:
+            registers[operation[1]] = registers[operation[2]];
+            break;
+
+            case 5:
+            registers[operation[1]] = registers[operation[2]] + registers[operation[3]];
+            break;
+
+            case 6:
+            registers[operation[1]] = registers[operation[2]] - registers[operation[3]];
+            break;
+
+            case 7:
+            registers[operation[1]] = registers[operation[2]] * registers[operation[3]];
+            break;
+
+            case 8:
+            registers[operation[1]] = registers[operation[2]] / registers[operation[3]];
+            break;
+
+            case 9:
+            registers[operation[1]] = (registers[operation[2]] == registers[operation[3]]) ? 1 : 0;
+            break;
+
+            case 10:
+            registers[operation[1]] = (registers[operation[2]] == 1 || registers[operation[3]] == 1) ? 1 : 0;
+            break;
+
+            case 11:
+            registers[operation[1]] = Integer.parseInt(memoryAccess.getMemory(operation[2]+dataMemoryOffset));
+            break;
+
+            case 12:
+            registers[operation[1]] += Integer.parseInt(memoryAccess.getMemory(operation[2]+dataMemoryOffset));
+            break;
+
+            case 13:
+            registers[operation[1]] = registers[operation[1]] * Integer.parseInt(memoryAccess.getMemory(operation[2]+dataMemoryOffset));
+            break;
+
+            case 14:
+            registers[operation[1]] = registers[operation[1]] / Integer.parseInt(memoryAccess.getMemory(operation[2]+dataMemoryOffset));
+            break;
+
+            case 15:
+            registers[operation[1]] = Integer.parseInt(memoryAccess.getMemory(operation[2]+dataMemoryOffset));
+            break;
+
+            case 16:
+            registers[operation[1]] = (registers[operation[2]] < registers[operation[3]]) ? 1 : 0;
+            break;
+
+            case 17:
+            registers[operation[1]] = (registers[operation[2]] < operation[3]) ? 1 : 0;
+            break;
+
+            case 18:
+            break;
+
+            case 19:
+            break;
+
+            case 20:
+            PCB.programCounter = operation[2];
+            break;
+
+            case 21:
+            if (registers[operation[1]] == registers[operation[2]])
+                PCB.programCounter = operation[3];
+            break;
+
+            case 22:
+            if (registers[operation[1]] != registers[operation[2]])
+                PCB.programCounter = operation[3];
+            break;
+
+            case 23:
+            if (registers[operation[1]] == 0)
+                PCB.programCounter = operation[2];
+            break;
+
+            case 24:
+            if (registers[operation[1]] != 0)
+                PCB.programCounter = operation[2];
+            break;
+
+            case 25:
+            if (registers[operation[1]] > 0)
+                PCB.programCounter = operation[2];
+            break;
+
+            case 26:
+            if (registers[operation[1]] < 0)
+                PCB.programCounter = operation[2];
+            break;
+        }
     }
 
-    void run(int PC) {
-        String instruction = fetch(PC);
-        int[] operation = decode(instruction);
+    void run() {
+        fetch();
+        int[] operation = decode();
         execute(operation);
     }
 }
