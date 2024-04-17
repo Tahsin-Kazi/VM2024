@@ -5,134 +5,151 @@ import java.util.Scanner;
 
 class OperatingSystem {
 
-    // High level variables for the objects controlled by the OS kernel.
-    MemoryManager MM;
+    MemoryManagementUnit MMU;
+    IOController IOC;
     ProcessControlBlock PCB;
     CentralProcessingUnit CPU;
-    boolean[] readyQueue;
+    
+    ProcessControlBlock[] jobQueue;
+    ProcessControlBlock[] readyQueue;
 
-    // Method that serves as the loader for inserting the program file into the disc.
-    void loader(String path) {
+    void kernel(String programPath) {
+        IOC = new IOController();
+        MMU = new MemoryManagementUnit();
 
-        // Finds the file and opens an input buffer for it.
-        File programFile = new File(path);
-        Scanner scan = new Scanner(programFile);
+        jobQueue = new ProcessControlBlock[10];
+        readyQueue = new ProcessControlBlock[10];
 
-        // Uses the input buffer with the memory manager to add to disc line-by-line.
-        while (scan.hasNextLine()) {
-            MM.addDisc(scan.nextLine());
+        loader(programPath);
+
+        longTermScheduler();
+        
+        CPU = new CentralProcessingUnit(PCB.dataMemoryOffset, MMU, PCB);
+
+        shortTermScheduler();
+
+        while(PCB.programCounter < PCB.instructionCount) {
+            CPU.PC = PCB.programCounter;
+            CPU.run();
+            PCB.programCounter++;
         }
-
     }
 
-    // High level method for the Long Term Scheduler that takes disc program to memory and sets up the PCB.
+    void loader(String path) {
+
+        File programFile = new File(path);
+        Scanner inputPort = new Scanner(programFile);
+
+        while (inputPort.hasNextLine()) {
+            IOC.write(inputPort.nextLine());
+        }
+
+        inputPort.close();
+    }
+
     void longTermScheduler() {
 
-        // Takes file from disc and adds to memory line-by-line with memory manager.
-        for (int i = 0; i < MM.getDiscSize(); i++) {
-            MM.addMemory(MM.getDisc(i));
+        for (int i = 0; i < IOC.getUsedSpace(); i++) {
+            MMU.write(IOC.read(i));
         }
 
-        // Deletes the job line for saving space and readability.
-        if (MM.getMemory(0).toLowerCase().contains("job")) {
-            MM.deleteMemory(0);
+        if (MMU.read(0).toLowerCase().contains("job")) {
+            MMU.delete(0);
         }
 
-        // Loops through the memory segment to find the data section, count the instructions, and set PCB state.
-        for (int i = 0; i < MM.getMemorySize(); i++) {
-            if (MM.getMemory(i).toLowerCase().contains("data")) {
-                PCB.dataIndex = i;
+        PCB = new ProcessControlBlock();
+
+        for (int i = 0; i < MMU.getUsedSpace(); i++) {
+            if (MMU.read(i).toLowerCase().contains("data")) {
+                PCB.dataMemoryOffset = i;
                 PCB.instructionCount = i;
-                MM.setMemory(i,"data");
+                MMU.override(i,"data");
             }
         }
 
-        // Adds a break in memory to signify end of program.
-        MM.addMemory("end");
+        MMU.write("end");
 
-        // Creates a PCB object for the process.
-        PCB = new ProcessControlBlock();
-
-        // Sets the program counter to the first instruction (line 0).
+        PCB.pageNumber = 1;
         PCB.programCounter = 0;
+        PCB.ready = true;
 
-        // Sets the CPU registers for program execution, making sure the PC and zero register are both zero.
-        CPU.registers = new int[16];
-        for (int i = 0; i < CPU.registers.length; i++) {
-            CPU.registers[i] = 0;
+        jobQueue[0] = PCB;
+    }
+
+    void shortTermScheduler() {
+        int i = 0;
+        while(!jobQueue[i].ready) {
+            i++;
         }
+        dispatch(0);
+    }
 
-        // Creates a bus between the Memory Manager and CPU
-        CPU.memoryAccess = MM;
-
-        // Gives the CPU access to the PCB.
-        CPU.PCB = PCB;
-
-        // Sets the CPU's addressing offset for memory accessing.
-        CPU.dataMemoryOffset = PCB.dataIndex;
-
-        // Initializes the ready queue for the process.
-        readyQueue = new boolean[1];
-
-        // Sets the queue state for the program to be ready.
-        readyQueue[0] = true;
+    void dispatch(int i) {
+        readyQueue[i] = jobQueue[i];
+        CPU.PC = PCB.programCounter;
     }
 }
 
-// A simple object for making PCBs.
 class ProcessControlBlock {
     public int programCounter;
-    public int dataIndex;
+    public int dataMemoryOffset;
+    public int pageNumber;
     public int instructionCount;
+    public boolean ready;
 }
 
-// A high level class to represent the memory manager chip.
-class MemoryManager {
-    // Two objects to represent the virtual disc and memory, as variable-sized lists of Strings.
-    // Array Lists were used to simulate the dynamic functionality of segmentation and IO operations for memory and disc.
+class IOController {
+
     private ArrayList<String> virtualDisc;
-    private ArrayList<String> virtualMemory;
 
-    // Constuctor for creating empty virtual disc and memory.
-    MemoryManager() {
+    IOController() { 
         virtualDisc = new ArrayList<String>();
-        virtualMemory = new ArrayList<String>();
     }
 
-    // Set of methods that carry out various memory/disc operations through the abstraction of the arraylist.
-    // Note that Array List operations handle dynamic length, insertion, removal, and compacting to simulate the virtual discs and memory.
-    
-    public void addMemory(String s) {
-        virtualMemory.add(s);
-    }
-
-    public void addDisc(String s) {
-        virtualDisc.add(s);
-    }
-
-    public int getMemorySize() {
-        return virtualMemory.size();
-    }
-
-    public int getDiscSize() {
-        return virtualDisc.size();
-    }
-
-    public String getMemory(int i) {
-        return virtualMemory.get(i);
-    }
-
-    public String getDisc(int i) {
+    public String read(int i) {
         return virtualDisc.get(i);
     }
 
-    public void deleteMemory(int i) {
-        virtualMemory.remove(i);
-        return;
+    public void write(String s) {
+        virtualDisc.add(s);
     }
 
-    public void setMemory(int i, String s) {
+    public int getUsedSpace() {
+        return virtualDisc.size();
+    }
+
+}
+
+class MemoryManagementUnit {
+
+    private ArrayList<String> virtualMemory;
+
+    MemoryManagementUnit() {
+        virtualMemory = new ArrayList<String>();
+    }
+    
+    public String read(int i) {
+        return virtualMemory.get(i);
+    }
+
+    public void write(String s) {
+        virtualMemory.add(s);
+    }
+    
+    public void write(int i, String s) {
+        virtualMemory.add(i, s);
+    }
+
+    public void override(int i, String s) {
         virtualMemory.set(i, s);
+    }
+
+    public void delete(int i) {
+        virtualMemory.remove(i);
+    }
+
+    public int getUsedSpace() {
+        return virtualMemory.size();
     }
 }
 
@@ -140,16 +157,33 @@ class MemoryManager {
 class CentralProcessingUnit {
     // Set of CPU registers.
     public int[] registers;
-    // Offset for Data Addressing
-    public int dataMemoryOffset;
+    // CPU Variable for managing the index offset for data in the virtual memory; used to handle effective addressing.
+    public int dataMemoryOffset; 
+    // CPU Register for storing the Program Counter
+    public int PC;
     // Access to Memory Manager and PCB.
-    public MemoryManager memoryAccess;
-    public ProcessControlBlock PCB;
+    public MemoryManagementUnit memory;
+    public ProcessControlBlock process;
+
+    CentralProcessingUnit(int offset, MemoryManagementUnit mmu, ProcessControlBlock pcb) {
+        
+        dataMemoryOffset = offset;
+
+        memory = mmu;
+
+        process = pcb;
+
+        registers = new int[16];
+
+        for(int i = 0; i < 16; i++) {
+            registers[i] = 0;
+        }
+    }
 
     // Method used to carry out the fetch part of the data path cycle.
     void fetch() {
         // Adds the instruction from the PC to the instruction register for decoding.
-        registers[2] = Integer.parseInt(memoryAccess.getMemory(PCB.programCounter));
+        registers[2] = Integer.parseInt(memory.read(PC));
     }
 
     // Method used to decode the instruction from the above method and pass into execution.
@@ -215,7 +249,7 @@ class CentralProcessingUnit {
             if (operation[3]==0) {
                 registers[operation[1]] = registers[operation[2]];
             } else {
-                registers[operation[1]] = Integer.parseInt(memoryAccess.getMemory(operation[3]+dataMemoryOffset));
+                registers[operation[1]] = Integer.parseInt(memory.read(operation[3]+dataMemoryOffset));
             }
             break;
             
@@ -223,7 +257,7 @@ class CentralProcessingUnit {
             if (operation[3]==0) {
                 registers[operation[2]] = registers[operation[1]];
             } else {
-                memoryAccess.setMemory(operation[3]+dataMemoryOffset, Integer.toString(registers[operation[1]]));
+                memory.override(operation[3]+dataMemoryOffset, Integer.toString(registers[operation[1]]));
             }
             break;
 
@@ -231,7 +265,7 @@ class CentralProcessingUnit {
             if (operation[3]==0) {
                 registers[operation[2]] = registers[operation[1]];
             } else {
-                memoryAccess.setMemory(operation[3]+dataMemoryOffset, Integer.toString(registers[operation[1]]));
+                memory.override(operation[3]+dataMemoryOffset, Integer.toString(registers[operation[1]]));
             }
             break;
 
@@ -239,7 +273,7 @@ class CentralProcessingUnit {
             if (operation[3]==0) {
                 registers[operation[1]] = registers[operation[2]];
             } else {
-                registers[operation[1]] = Integer.parseInt(memoryAccess.getMemory(operation[3]+dataMemoryOffset));
+                registers[operation[1]] = Integer.parseInt(memory.read(operation[3]+dataMemoryOffset));
             }
             break;
 
@@ -272,23 +306,23 @@ class CentralProcessingUnit {
             break;
 
             case 11:
-            registers[operation[1]] = Integer.parseInt(memoryAccess.getMemory(operation[2]+dataMemoryOffset));
+            registers[operation[1]] = Integer.parseInt(memory.read(operation[2]+dataMemoryOffset));
             break;
 
             case 12:
-            registers[operation[1]] += Integer.parseInt(memoryAccess.getMemory(operation[2]+dataMemoryOffset));
+            registers[operation[1]] += Integer.parseInt(memory.read(operation[2]+dataMemoryOffset));
             break;
 
             case 13:
-            registers[operation[1]] = registers[operation[1]] * Integer.parseInt(memoryAccess.getMemory(operation[2]+dataMemoryOffset));
+            registers[operation[1]] = registers[operation[1]] * Integer.parseInt(memory.read(operation[2]+dataMemoryOffset));
             break;
 
             case 14:
-            registers[operation[1]] = registers[operation[1]] / Integer.parseInt(memoryAccess.getMemory(operation[2]+dataMemoryOffset));
+            registers[operation[1]] = registers[operation[1]] / Integer.parseInt(memory.read(operation[2]+dataMemoryOffset));
             break;
 
             case 15:
-            registers[operation[1]] = Integer.parseInt(memoryAccess.getMemory(operation[2]+dataMemoryOffset));
+            registers[operation[1]] = Integer.parseInt(memory.read(operation[2]+dataMemoryOffset));
             break;
 
             case 16:
@@ -306,42 +340,42 @@ class CentralProcessingUnit {
             break;
 
             case 20:
-            PCB.programCounter = operation[2];
+            process.programCounter = operation[2];
             break;
 
             case 21:
             if (registers[operation[1]] == registers[operation[2]])
-                PCB.programCounter = operation[3];
+                process.programCounter = operation[3];
             break;
 
             case 22:
             if (registers[operation[1]] != registers[operation[2]])
-                PCB.programCounter = operation[3];
+                process.programCounter = operation[3];
             break;
 
             case 23:
             if (registers[operation[1]] == 0)
-                PCB.programCounter = operation[2];
+                process.programCounter = operation[2];
             break;
 
             case 24:
             if (registers[operation[1]] != 0)
-                PCB.programCounter = operation[2];
+                process.programCounter = operation[2];
             break;
 
             case 25:
             if (registers[operation[1]] > 0)
-                PCB.programCounter = operation[2];
+                process.programCounter = operation[2];
             break;
 
             case 26:
             if (registers[operation[1]] < 0)
-                PCB.programCounter = operation[2];
+                process.programCounter = operation[2];
             break;
         }
     }
 
-    // Arbitrary run method that performs the entire CPU data path cycle from only inputting the PC.
+    // Arbitrary run method that performs the entire CPU data path cycle.
     // Used to make kernel's code simpler.
     void run() {
         fetch();
