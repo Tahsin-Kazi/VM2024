@@ -2,35 +2,60 @@ import java.io.File;
 import java.util.ArrayList;
 import java.util.Scanner;
 
-
+// The OS class that includes the kernel/driver, loader, schedulers, device objects, etc.
 class OperatingSystem {
 
+    // Object for instantiating classes for the Memory Manager, IO Controller, Process PCB, and CPU
+    // These objects represent the corresponding components as the chips/devices/structures that the kernel controls through the OSML layer.
+    // They include the necessary variables and methods, as you will see later in the code.
     MemoryManagementUnit MMU;
     IOController IOC;
     ProcessControlBlock PCB;
     CentralProcessingUnit CPU;
     
+    // These are two queues managed by the long-term and short-term schedulers.
+    // They are used to schedulea queue of jobs and then shift them into the CPU when ready.
+    // These queues were implemented as PCB arrays to better represent them as lists of processes.
+    // The PCB objects in these arrays represent the jobs (processes) and give the schedulers access to the process states.
     ProcessControlBlock[] jobQueue;
     ProcessControlBlock[] readyQueue;
 
-    void kernel(String programPath) {
+    // The OS Driver (Kernel) method.
+    // This method takes in the path of the program file that needs to be executed and employs the loader, schedulers, and CPU to execute said program.
+    // The code for this method was kept as simple as possible to represent the entire logic and flow of program execution as concisely as possible.
+    // Thus, this method mostly instantiates objects and calls methods using those objects.
+    // It is a high-level encapsulation of the entire VM2024 architecture.
+    void driver(String programPath) {
+        // Instantiates two objects for two devices: the IO Controller and Memory Management Unit.
+        // These represent the IO/memory devices that will be used later.
         IOC = new IOController();
         MMU = new MemoryManagementUnit();
 
+        // Creates two empty job and ready queues to house the jobs that will be executed.
+        // Although only job is being run in our example, the arrays were initialized at 10 to simulate multiple jobs.
         jobQueue = new ProcessControlBlock[10];
         readyQueue = new ProcessControlBlock[10];
 
+        // The driver inputs the program path into the loader.
         loader(programPath);
 
+        // Then the driver calls for the long-term scheduler.
         longTermScheduler();
         
+        // Before scheduling the task, the driver uses the newly created devices and process PCB to connect to and start the CPU.
+        // The CPU gets access to the necessary PCB, memory, and is loaded with the correct memory offset for addressing the program data.
         CPU = new CentralProcessingUnit(PCB.dataMemoryOffset, MMU, PCB);
 
+        // As all components are ready, the short-term scheduler is called to find and shift the process into the ready queue.
         shortTermScheduler();
 
+        // Now that the process is ready, PCB, and PC are set, the driver iterates through all of the instructions of the program, executing the data path cycle through the CPU for each instruction.
         while(PCB.programCounter < PCB.instructionCount) {
+            // Syncs the PCB and CPU program counters.
             CPU.PC = PCB.programCounter;
+            // Runs the data path cycle.
             CPU.run();
+            // Iterates the program counter.
             PCB.programCounter++;
         }
     }
@@ -86,7 +111,7 @@ class OperatingSystem {
 
     void dispatch(int i) {
         readyQueue[i] = jobQueue[i];
-        CPU.PC = PCB.programCounter;
+        CPU.PC = readyQueue[i].programCounter;
     }
 }
 
