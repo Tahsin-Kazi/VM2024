@@ -60,6 +60,9 @@ class OperatingSystem {
         }
     }
 
+    // The loader method, responsible for opening the program file and saving the contents into the virtual disc.
+    // This method works off of a virtual input port that resembles an IO connection between the virtual disc and the abritrary location of the program file.
+    // The method opens the port, scans through the document, and adds the hexcode line-by-line to the virtual disc. 
     void loader(String path) {
 
         File programFile = new File(path);
@@ -72,18 +75,25 @@ class OperatingSystem {
         inputPort.close();
     }
 
+    // The long-term scheduler method, responsible for preparing the program to be dispatched as a job.
+    // Transfer the program from virtual disc to a page in virtual memory, creates a PCB for the program with variables for state, and pushes the program to the job queue.
     void longTermScheduler() {
 
+        // Iterates through the Virtual Disc and adds the program line-by-line to a page in virtual memory.
         for (int i = 0; i < IOC.getUsedSpace(); i++) {
             MMU.write(IOC.read(i));
         }
 
+        // Deletes the first line containing "job" for readability and simplicity.
         if (MMU.read(0).toLowerCase().contains("job")) {
             MMU.delete(0);
         }
 
+        // Initializes a new PCB for the program.
         PCB = new ProcessControlBlock();
 
+        // Iterates through the page looking for break between instructions/data.
+        // Then computes the instruction count, data offset in memory, saves them in PCB, and creates a break for data section.
         for (int i = 0; i < MMU.getUsedSpace(); i++) {
             if (MMU.read(i).toLowerCase().contains("data")) {
                 PCB.dataMemoryOffset = i;
@@ -92,87 +102,117 @@ class OperatingSystem {
             }
         }
 
+        // Adds a line to the end of the page to signify end of the program.
         MMU.write("end");
 
+        // Sets the PCB's variables to some initial values, prepares it for dispatching.
         PCB.pageNumber = 1;
         PCB.programCounter = 0;
         PCB.ready = true;
 
+        // Pushes the program into the job queue.
         jobQueue[0] = PCB;
     }
 
+    // The short-term scheduler method, for finding and dispatching the program for execution.
     void shortTermScheduler() {
+        // Iterates through the job queue until it finds a ready program.
         int i = 0;
         while(!jobQueue[i].ready) {
             i++;
         }
+        // Then dispatches that program.
         dispatch(0);
     }
 
+    // Dispatcher method, to be used by the short-term scheduler.
     void dispatch(int i) {
+        // Adds the program to ready queue and sets the CPU's PC for execution.
         readyQueue[i] = jobQueue[i];
         CPU.PC = readyQueue[i].programCounter;
     }
 }
 
+// A class for creating Process Control Block objects, containing relevant state variables for the program.
 class ProcessControlBlock {
     public int programCounter;
+    
+    // The offset between instructions and data in memory, used for data addressing in the CPU.
     public int dataMemoryOffset;
+    
+    // Number of page used in memory.
     public int pageNumber;
+    
     public int instructionCount;
+    
+    // Boolean to represent whether the program is ready for execution or not.
     public boolean ready;
 }
 
+// A a class for creating a IO Controller object that manages the virtual disc and handles IO operations.
 class IOController {
 
+    // Array List of Strings, representing our virtual disc and IO device.
     private ArrayList<String> virtualDisc;
-
+    
+    // Constructor that initializes this device.
     IOController() { 
         virtualDisc = new ArrayList<String>();
     }
 
+    // Read IO Operation that returns a specfic line from disc.
     public String read(int i) {
         return virtualDisc.get(i);
     }
 
+    // Write IO Operation that writes to latest line in disc.
     public void write(String s) {
         virtualDisc.add(s);
     }
 
+    // IO Operation that returns the number of used lines in disc.
     public int getUsedSpace() {
         return virtualDisc.size();
     }
-
 }
 
+// A class for creating a Memory Management Unit object that manages virtual memory and handles memory operations.
 class MemoryManagementUnit {
 
+    // Array List of String to represent virtual memory.
     private ArrayList<String> virtualMemory;
 
+    // Constructor that initializes this device.
     MemoryManagementUnit() {
         virtualMemory = new ArrayList<String>();
     }
     
+    // Read Operation that returns a specfic line from memory.
     public String read(int i) {
         return virtualMemory.get(i);
     }
 
+    // Write Operation that writes to the latest line in memory.
     public void write(String s) {
         virtualMemory.add(s);
     }
     
+    // Write Operation that writes to a specific line in memory.
     public void write(int i, String s) {
         virtualMemory.add(i, s);
     }
 
+    // Write Operation that writes over a specific line in memory.
     public void override(int i, String s) {
         virtualMemory.set(i, s);
     }
 
+    // Delete Operation that removes a line from memory.
     public void delete(int i) {
         virtualMemory.remove(i);
     }
 
+    // Memory Operation that returns the number of used lines in memory.
     public int getUsedSpace() {
         return virtualMemory.size();
     }
@@ -190,19 +230,16 @@ class CentralProcessingUnit {
     public MemoryManagementUnit memory;
     public ProcessControlBlock process;
 
-    CentralProcessingUnit(int offset, MemoryManagementUnit mmu, ProcessControlBlock pcb) {
-        
-        dataMemoryOffset = offset;
+    // Constructor for initializing the CPU as a device, requires a PCB for the process and MMU for memory access. 
+    CentralProcessingUnit(MemoryManagementUnit mmu, ProcessControlBlock pcb) {
 
+        // Instantiates the variables for memory, PCB, and offset.
         memory = mmu;
-
         process = pcb;
+        dataMemoryOffset = pcb.dataMemoryOffset;
 
+        // Initializes the registers, with each one being set to 0.
         registers = new int[16];
-
-        for(int i = 0; i < 16; i++) {
-            registers[i] = 0;
-        }
     }
 
     // Method used to carry out the fetch part of the data path cycle.
@@ -224,6 +261,7 @@ class CentralProcessingUnit {
         // Creates the operations and operands from the instruction type, creating an stream of data that can be put into the ALU for execution.
         // Note that the decode step handles this operation specific to the instruction type and manages the different registers and address lengths.
         
+        // For Arithmetic Instructions, returns opcode, 3 registers, and the address.
         if (type == 0) {    
             int reg1 = Integer.parseInt(instruction.substring(8,12));
             int reg2 = Integer.parseInt(instruction.substring(12,16));
@@ -233,6 +271,7 @@ class CentralProcessingUnit {
             return operation;
         }
 
+        // For Conditional Branch / Immediate Format Instructions, returns opcode, 2 registers, and the address.
         if (type == 1) {    
             int reg1 = Integer.parseInt(instruction.substring(8,12));
             int reg2 = Integer.parseInt(instruction.substring(12,16));
@@ -241,12 +280,14 @@ class CentralProcessingUnit {
             return operation;
         }
 
+        // For Unconditional Jump Instructions, returns opcode and the address.
         if (type == 2) {    
             int address = Integer.parseInt(instruction.substring(8,32));
             int[] operation = {opcode,address};
             return operation;
         }
 
+        // For IO Instructions, returns opcode, 2 registers, and the address.
         if (type == 3) {    
             int reg1 = Integer.parseInt(instruction.substring(8,12));
             int reg2 = Integer.parseInt(instruction.substring(12,16));
@@ -254,13 +295,10 @@ class CentralProcessingUnit {
             int[] operation = {opcode,reg1,reg2,address};
             return operation;
         }
-
-        // If the instruction has no valid type, the opcode is returned.
-        int[] operation = {opcode};
-        return operation;
     }
 
     // Method used to represent the ALU executing instructions for the data path cycle.
+    // A large switch statement that executes a function based on the opcode from decode().
     void execute(int[] operation) {
         // Gets stream of operation and operands from the decode step.
         // Then uses a switch statement to represent all possible opcodes and carries out operation from the opcodes using the proper operands.
@@ -269,7 +307,8 @@ class CentralProcessingUnit {
 
             // Uses a case for each opcode and carries out the operation with the operands using the registers and memory access as needed, also checks for the address being null to see if the register or address needs to be used for specific operations.
             // Cases represent opcodes in numerical order as from the assignment table.
-                
+            
+            // RD - Reads data at address or register.
             case 0:
             if (operation[3]==0) {
                 registers[operation[1]] = registers[operation[2]];
@@ -278,6 +317,7 @@ class CentralProcessingUnit {
             }
             break;
             
+            // WR - Writes data to address or register.
             case 1:
             if (operation[3]==0) {
                 registers[operation[2]] = registers[operation[1]];
@@ -286,6 +326,7 @@ class CentralProcessingUnit {
             }
             break;
 
+            // ST - Stores data to address or register.
             case 2:
             if (operation[3]==0) {
                 registers[operation[2]] = registers[operation[1]];
@@ -294,6 +335,7 @@ class CentralProcessingUnit {
             }
             break;
 
+            // LW - Loads data from register or address into other register.
             case 3:
             if (operation[3]==0) {
                 registers[operation[1]] = registers[operation[2]];
@@ -302,100 +344,124 @@ class CentralProcessingUnit {
             }
             break;
 
+            // MOV - Transfers data from one register to another.
             case 4:
             registers[operation[1]] = registers[operation[2]];
             break;
 
+            // ADD - Adds two registers into other the register.
             case 5:
             registers[operation[1]] = registers[operation[2]] + registers[operation[3]];
             break;
 
+            // SUB - Subtracts two registers into other the register.
             case 6:
             registers[operation[1]] = registers[operation[2]] - registers[operation[3]];
             break;
 
+            // MUL - Multiplies two registers into other the register.
             case 7:
             registers[operation[1]] = registers[operation[2]] * registers[operation[3]];
             break;
 
+            // DIV - Divides two registers into other the register.
             case 8:
             registers[operation[1]] = registers[operation[2]] / registers[operation[3]];
             break;
-
+            
+            // AND - Stores the AND of two registers into the other.
             case 9:
             registers[operation[1]] = (registers[operation[2]] == registers[operation[3]]) ? 1 : 0;
             break;
 
+            // OR - Stores the OR of two registers into the other.
             case 10:
             registers[operation[1]] = (registers[operation[2]] == 1 || registers[operation[3]] == 1) ? 1 : 0;
             break;
 
+            // MOVI - Copy the data from address into register.
             case 11:
             registers[operation[1]] = Integer.parseInt(memory.read(operation[2]+dataMemoryOffset));
             break;
 
+            // ADDI - Add register by data from address.
             case 12:
             registers[operation[1]] += Integer.parseInt(memory.read(operation[2]+dataMemoryOffset));
             break;
 
+            // MULI - Multiply register by data from address.
             case 13:
             registers[operation[1]] = registers[operation[1]] * Integer.parseInt(memory.read(operation[2]+dataMemoryOffset));
             break;
 
+            // DIVI - Divide register by data from address.
             case 14:
             registers[operation[1]] = registers[operation[1]] / Integer.parseInt(memory.read(operation[2]+dataMemoryOffset));
             break;
 
+            // LDI - Same as MOVI
             case 15:
             registers[operation[1]] = Integer.parseInt(memory.read(operation[2]+dataMemoryOffset));
             break;
 
+            // SLT - Set register as 1 or 0 on register 2 < register 3.
             case 16:
             registers[operation[1]] = (registers[operation[2]] < registers[operation[3]]) ? 1 : 0;
             break;
 
+            // SLTI - Set register as 1 or 0 on register 2 < addressed data.
             case 17:
-            registers[operation[1]] = (registers[operation[2]] < operation[3]) ? 1 : 0;
+            registers[operation[1]] = (registers[operation[2]] < Integer.parseInt(memory.read(operation[3]+dataMemoryOffset)) ? 1 : 0;
             break;
-
+            
+            // HTL - Stops the program.
             case 18:
+            process.programCounter = process.instructionCount;
             break;
 
+            // NOP - Move to next instruction.
             case 19:
             break;
 
+            // JMP - Jump PC to addressed 
             case 20:
-            process.programCounter = operation[2];
+            process.programCounter = Integer.parseInt(memory.read(operation[2]+dataMemoryOffset));
             break;
 
+            // BEQ - Jumps to address if registers are equal.
             case 21:
             if (registers[operation[1]] == registers[operation[2]])
-                process.programCounter = operation[3];
+                process.programCounter = Integer.parseInt(memory.read(operation[3]+dataMemoryOffset));
             break;
 
+            // BNE - Jumps to address if registers are unequal.
             case 22:
             if (registers[operation[1]] != registers[operation[2]])
-                process.programCounter = operation[3];
+                process.programCounter = Integer.parseInt(memory.read(operation[3]+dataMemoryOffset));
             break;
 
+            // BEZ - Jumps to address if register is 0.
             case 23:
             if (registers[operation[1]] == 0)
-                process.programCounter = operation[2];
+                process.programCounter = Integer.parseInt(memory.read(operation[2]+dataMemoryOffset));
             break;
 
+            // BNZ - Jumps to address if register is not 0.
             case 24:
             if (registers[operation[1]] != 0)
-                process.programCounter = operation[2];
+                process.programCounter = Integer.parseInt(memory.read(operation[2]+dataMemoryOffset));
             break;
 
+            // BGZ - Jumps to address if register is positive.
             case 25:
             if (registers[operation[1]] > 0)
-                process.programCounter = operation[2];
+                process.programCounter = Integer.parseInt(memory.read(operation[2]+dataMemoryOffset));
             break;
 
+            // BLZ - Jumps to address if register is negative.
             case 26:
             if (registers[operation[1]] < 0)
-                process.programCounter = operation[2];
+                process.programCounter = Integer.parseInt(memory.read(operation[2]+dataMemoryOffset));
             break;
         }
     }
