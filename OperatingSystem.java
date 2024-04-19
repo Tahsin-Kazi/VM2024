@@ -44,7 +44,7 @@ class OperatingSystem {
         
         // Before scheduling the task, the driver uses the newly created devices and process PCB to connect to and start the CPU.
         // The CPU gets access to the necessary PCB, memory, and is loaded with the correct memory offset for addressing the program data.
-        CPU = new CentralProcessingUnit(PCB.dataMemoryOffset, MMU, PCB);
+        CPU = new CentralProcessingUnit(MMU, PCB);
 
         // As all components are ready, the short-term scheduler is called to find and shift the process into the ready queue.
         shortTermScheduler();
@@ -295,6 +295,10 @@ class CentralProcessingUnit {
             int[] operation = {opcode,reg1,reg2,address};
             return operation;
         }
+
+        // Returns only the opcode if there is no valid type.
+        int[] operation = {opcode};
+        return operation;
     }
 
     // Method used to represent the ALU executing instructions for the data path cycle.
@@ -411,7 +415,7 @@ class CentralProcessingUnit {
 
             // SLTI - Set register as 1 or 0 on register 2 < addressed data.
             case 17:
-            registers[operation[1]] = (registers[operation[2]] < Integer.parseInt(memory.read(operation[3]+dataMemoryOffset)) ? 1 : 0;
+            registers[operation[1]] = (registers[operation[2]] < Integer.parseInt(memory.read(operation[3]+dataMemoryOffset)) ? 1 : 0);
             break;
             
             // HTL - Stops the program.
